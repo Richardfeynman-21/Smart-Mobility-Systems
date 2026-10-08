@@ -27,6 +27,7 @@ A lightweight Electric Vehicle (EV) and Smart Bicycle sharing, monitoring, and r
 ```
 SmartCampusMobility/
 ├── app.py                  # Flask backend & REST API (runs on 0.0.0.0:5000)
+├── view_db.py              # CLI tool to inspect local SQLite database anytime
 ├── requirements.txt        # Python package dependencies
 ├── setup_ec2.sh            # Simple 1-click setup script for AWS EC2
 ├── .gitignore              # Git ignore rules

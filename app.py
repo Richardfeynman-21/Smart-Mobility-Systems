@@ -366,6 +366,8 @@ def create_reservation():
         (vehicle_id, user_id)
     )
 
+    reservation_id = cursor.lastrowid
+
     # Change vehicle status
     cursor.execute(
         """
@@ -379,9 +381,6 @@ def create_reservation():
     )
 
     db.commit()
-
-    reservation_id = cursor.lastrowid
-
     cursor.close()
 
     return jsonify({

@@ -8,6 +8,8 @@ try:
 except ImportError:
     pass
 
+import sqlite3
+
 app = Flask(__name__)
 
 # MySQL database configuration
@@ -17,20 +19,134 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "smart_campus_mobility")
 DB_PORT = int(os.getenv("DB_PORT", "3306"))
 
-def connect_db():
-    return mysql.connector.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
-        port=DB_PORT
-    )
+class SQLiteCursorAdapter:
+    def __init__(self, cursor, dictionary=False):
+        self.cursor = cursor
+        self.dictionary = dictionary
+        self.lastrowid = None
+        self.rowcount = 0
 
-try:
-    db = connect_db()
-except Exception as e:
-    print(f"Warning: Initial database connection failed: {e}")
-    db = None
+    def execute(self, query, params=None):
+        query = query.replace("%s", "?")
+        if params is not None:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+        self.lastrowid = self.cursor.lastrowid
+        self.rowcount = self.cursor.rowcount
+        return self
+
+    def fetchall(self):
+        rows = self.cursor.fetchall()
+        if self.dictionary:
+            return [dict(row) for row in rows]
+        return [tuple(row) for row in rows]
+
+    def fetchone(self):
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        if self.dictionary:
+            return dict(row)
+        return tuple(row)
+
+    def close(self):
+        self.cursor.close()
+
+class SQLiteConnectionAdapter:
+    def __init__(self, db_path="campus_local.db"):
+        self.db_path = db_path
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._init_schema()
+
+    def _init_schema(self):
+        c = self._conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT,
+                role TEXT DEFAULT 'STUDENT',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS vehicles (
+                vehicle_id TEXT PRIMARY KEY,
+                vehicle_type TEXT NOT NULL,
+                location TEXT NOT NULL,
+                battery_level INTEGER NOT NULL DEFAULT 100,
+                status TEXT NOT NULL DEFAULT 'AVAILABLE',
+                user_id TEXT,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS reservations (
+                reservation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vehicle_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                end_time TIMESTAMP,
+                status TEXT NOT NULL DEFAULT 'ACTIVE'
+            );
+        """)
+        c.execute("SELECT COUNT(*) FROM users")
+        if c.fetchone()[0] == 0:
+            c.execute("""
+                INSERT INTO users (user_id, name, email, role) VALUES
+                ('STU-1001', 'Aarav Patel', 'aarav.patel@campus.edu', 'STUDENT'),
+                ('STU-1002', 'Rishi Reddy', 'rishi.reddy@campus.edu', 'STUDENT'),
+                ('STU-1003', 'Sneha Sharma', 'sneha.sharma@campus.edu', 'STUDENT'),
+                ('STU-1004', 'Vikram Rao', 'vikram.rao@campus.edu', 'STUDENT'),
+                ('FAC-2001', 'Dr. Meera Iyer', 'meera.iyer@campus.edu', 'FACULTY');
+            """)
+            c.execute("""
+                INSERT INTO vehicles (vehicle_id, vehicle_type, location, battery_level, status, user_id) VALUES
+                ('EV-101', 'ELECTRIC_SCOOTER', 'North Academic Gate', 85, 'AVAILABLE', NULL),
+                ('EV-102', 'ELECTRIC_SCOOTER', 'Student Center Hub', 18, 'AVAILABLE', NULL),
+                ('EV-103', 'ELECTRIC_CAR', 'Main Administration Plaza', 92, 'AVAILABLE', NULL),
+                ('BK-201', 'SMART_BICYCLE', 'Engineering Block B', 100, 'AVAILABLE', NULL),
+                ('BK-202', 'SMART_BICYCLE', 'Central Sports Complex', 100, 'RESERVED', 'STU-1001'),
+                ('EV-104', 'ELECTRIC_SCOOTER', 'Hostel Block 3', 15, 'MAINTENANCE', NULL),
+                ('BK-203', 'SMART_BICYCLE', 'Campus Library South', 95, 'AVAILABLE', NULL);
+            """)
+            c.execute("""
+                INSERT INTO reservations (reservation_id, vehicle_id, user_id, start_time, end_time, status) VALUES
+                (1, 'BK-202', 'STU-1001', CURRENT_TIMESTAMP, NULL, 'ACTIVE');
+            """)
+        self._conn.commit()
+
+    def cursor(self, dictionary=False):
+        return SQLiteCursorAdapter(self._conn.cursor(), dictionary=dictionary)
+
+    def commit(self):
+        self._conn.commit()
+
+    def is_connected(self):
+        return True
+
+    def ping(self, reconnect=True, attempts=3, delay=2):
+        pass
+
+def connect_db():
+    try:
+        conn = mysql.connector.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            port=DB_PORT,
+            connection_timeout=2
+        )
+        print("Connected to MySQL database.")
+        return conn
+    except Exception as e:
+        print(f"MySQL unavailable ({e}). Using local zero-setup SQLite database: campus_local.db")
+        return SQLiteConnectionAdapter()
+
+db = connect_db()
 
 @app.before_request
 def ensure_database_connection():
@@ -40,12 +156,8 @@ def ensure_database_connection():
         if db is None or not db.is_connected():
             db = connect_db()
         else:
-            db.ping(
-                reconnect=True,
-                attempts=3,
-                delay=2
-            )
-    except (mysql.connector.Error, Exception):
+            db.ping(reconnect=True, attempts=2, delay=1)
+    except Exception:
         db = connect_db()
 
 @app.route("/")

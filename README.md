@@ -1,6 +1,6 @@
 # Smart Campus Mobility
 
-A full-stack Electric Vehicle (EV) and Smart Bicycle sharing, monitoring, and reservation management system designed for university and corporate campuses.
+A lightweight Electric Vehicle (EV) and Smart Bicycle sharing, monitoring, and reservation management system for campus fleets.
 
 ---
 
@@ -10,16 +10,15 @@ A full-stack Electric Vehicle (EV) and Smart Bicycle sharing, monitoring, and re
 * **Student Self-Service Portal**: Select student profiles to reserve and return available vehicles.
 * **Intelligent Vehicle Status Tracking**: Real-time statuses (`AVAILABLE`, `RESERVED`, `IN_USE`, `MAINTENANCE`).
 * **Automated Fleet Health Alerts**: Proactively flags low battery ($\le 20\%$) and vehicles requiring maintenance.
-* **Production Ready**: Fully configured for AWS EC2 and Amazon RDS MySQL with automated deployment scripts.
+* **Direct & Simple Deployment**: Runs Flask directly on port 5000—no complex reverse proxies needed.
 
 ---
 
 ## 🛠️ Tech Stack
 
-* **Backend**: Python 3, Flask, Gunicorn
+* **Backend**: Python 3, Flask
 * **Database**: MySQL 8.0 / Amazon RDS MySQL
-* **Frontend**: Vanilla HTML5, Modern CSS3, JavaScript (Fetch API)
-* **DevOps**: Docker, Nginx (Reverse Proxy), Systemd, Bash automation
+* **Frontend**: HTML5, CSS3, JavaScript (Fetch API)
 
 ---
 
@@ -27,11 +26,9 @@ A full-stack Electric Vehicle (EV) and Smart Bicycle sharing, monitoring, and re
 
 ```
 SmartCampusMobility/
-├── app.py                  # Flask backend & REST API
+├── app.py                  # Flask backend & REST API (runs on 0.0.0.0:5000)
 ├── requirements.txt        # Python package dependencies
-├── setup_ec2.sh            # Automated deployment script for AWS EC2
-├── Dockerfile              # Docker container definition
-├── .dockerignore           # Docker ignore rules
+├── setup_ec2.sh            # Simple 1-click setup script for AWS EC2
 ├── .gitignore              # Git ignore rules
 ├── .env.example            # Environment variables template
 ├── database/
@@ -49,63 +46,58 @@ SmartCampusMobility/
 
 ## 💻 Local Quickstart
 
-### 1. Prerequisites
-* Python 3.10+
-* MySQL 8.0+
-
-### 2. Setup Database
+### 1. Setup Database
 ```bash
 mysql -u root -p < database/schema.sql
 ```
 
-### 3. Setup Python Environment
+### 2. Setup Python Virtual Environment
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
-Copy `.env.example` to `.env` and fill in your MySQL credentials:
+### 3. Configure Database
+Copy `.env.example` to `.env` and enter your MySQL details:
 ```bash
 cp .env.example .env
 ```
 
-### 5. Run Application
+### 4. Run the Application
 ```bash
 python3 app.py
 ```
-Open your browser and navigate to `http://localhost:5000`.
+Open your browser and visit: `http://localhost:5000`
 
 ---
 
-## ☁️ Deploying to AWS (EC2 + RDS)
+## ☁️ Simple AWS EC2 Deployment (with Amazon RDS)
 
-1. Provision an **Amazon RDS MySQL** instance inside a VPC.
-2. Launch an **Ubuntu 24.04 EC2** instance (`t3.micro`).
-3. Clone this repository on the EC2 instance:
-   ```bash
-   git clone https://github.com/Richardfeynman-21/Smart-Mobility-Systems.git
-   cd Smart-Mobility-Systems
-   ```
-4. Run the automated setup script:
-   ```bash
-   sudo ./setup_ec2.sh
-   ```
-The script handles system dependencies, RDS database migration, Gunicorn systemd service, and Nginx reverse proxy automatically.
+### 1. In AWS EC2 Security Group:
+Add an Inbound Rule to allow traffic to the Flask port:
+* **Type**: Custom TCP
+* **Port**: `5000`
+* **Source**: `0.0.0.0/0` (Anywhere)
 
----
+### 2. On your EC2 Terminal:
+```bash
+git clone https://github.com/Richardfeynman-21/Smart-Mobility-Systems.git
+cd Smart-Mobility-Systems
+chmod +x setup_ec2.sh
+./setup_ec2.sh
+```
 
-## 📡 REST API Reference
+### 3. Run the App:
+```bash
+# Direct run
+./venv/bin/python3 app.py
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/vehicles` | List all vehicles |
-| `POST` | `/vehicles` | Register a new vehicle |
-| `PUT` | `/vehicles/<id>` | Update vehicle status or location |
-| `DELETE` | `/vehicles/<id>` | Delete a vehicle |
-| `GET` | `/users` | List registered campus users |
-| `GET` | `/reservations` | List all reservations |
-| `POST` | `/reservations` | Reserve an available vehicle |
-| `PUT` | `/reservations/<id>/return` | Return a vehicle |
-| `GET` | `/vehicles/alerts` | List fleet alerts (low battery / maintenance) |
+# Or run in the background
+nohup ./venv/bin/python3 app.py > app.log 2>&1 &
+```
+
+Then visit:
+```
+http://<YOUR-EC2-PUBLIC-IP>:5000
+```

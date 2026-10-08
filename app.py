@@ -366,4 +366,5 @@ def vehicle_alerts():
     })
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Runs directly on port 5000 accessible via EC2 Public IP: http://<EC2-IP>:5000
+    app.run(host="0.0.0.0", port=5000, debug=True)

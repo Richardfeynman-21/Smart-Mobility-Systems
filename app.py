@@ -130,6 +130,55 @@ class SQLiteConnectionAdapter:
     def ping(self, reconnect=True, attempts=3, delay=2):
         pass
 
+def ensure_database_schema(conn):
+    """
+    Backup mechanism: Automatically creates database tables using
+    database/schema.sql if required tables are not found.
+    """
+    schema_path = os.path.join(os.path.dirname(__file__), "database", "schema.sql")
+    if not os.path.exists(schema_path):
+        print(f"Warning: Schema file not found at {schema_path}")
+        return
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SHOW TABLES")
+        existing_tables = {row[0].lower() for row in cursor.fetchall()}
+        cursor.close()
+
+        required_tables = {"users", "vehicles", "reservations"}
+        if not required_tables.issubset(existing_tables):
+            missing = required_tables - existing_tables
+            print(f"[Backup Mechanism] Missing table(s) detected: {missing}. Creating tables from {schema_path}...")
+
+            with open(schema_path, "r", encoding="utf-8") as f:
+                sql_content = f.read()
+
+            statements = []
+            current_stmt = []
+            for line in sql_content.splitlines():
+                trimmed = line.strip()
+                if trimmed.startswith("--") or trimmed.startswith("/*"):
+                    continue
+                current_stmt.append(line)
+                if trimmed.endswith(";"):
+                    stmt = "\n".join(current_stmt).strip()
+                    if stmt:
+                        stmt_upper = stmt.upper()
+                        # Skip database creation/switching because connection is already bound to DB_NAME
+                        if not stmt_upper.startswith("CREATE DATABASE") and not stmt_upper.startswith("USE "):
+                            statements.append(stmt)
+                    current_stmt = []
+
+            cur = conn.cursor()
+            for statement in statements:
+                cur.execute(statement)
+            conn.commit()
+            cur.close()
+            print("[Backup Mechanism] All tables and initial seed data created successfully using schema.sql!")
+    except Exception as e:
+        print(f"[Backup Mechanism] Error while initializing database schema: {e}")
+
 def connect_db():
     try:
         conn = mysql.connector.connect(
@@ -140,8 +189,41 @@ def connect_db():
             port=DB_PORT,
             connection_timeout=2
         )
+        ensure_database_schema(conn)
         print("Connected to MySQL database.")
         return conn
+    except mysql.connector.Error as err:
+        # If database itself doesn't exist (Error 1049), auto-create it
+        if getattr(err, "errno", None) == 1049:
+            try:
+                print(f"[Backup Mechanism] Database '{DB_NAME}' not found. Auto-creating database...")
+                admin_conn = mysql.connector.connect(
+                    host=DB_HOST,
+                    user=DB_USER,
+                    password=DB_PASSWORD,
+                    port=DB_PORT,
+                    connection_timeout=2
+                )
+                admin_cursor = admin_conn.cursor()
+                admin_cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+                admin_cursor.close()
+                admin_conn.close()
+
+                conn = mysql.connector.connect(
+                    host=DB_HOST,
+                    user=DB_USER,
+                    password=DB_PASSWORD,
+                    database=DB_NAME,
+                    port=DB_PORT
+                )
+                ensure_database_schema(conn)
+                print(f"Connected to newly created MySQL database '{DB_NAME}'.")
+                return conn
+            except Exception as create_err:
+                print(f"Could not auto-create database '{DB_NAME}': {create_err}")
+
+        print(f"MySQL unavailable ({err}). Using local zero-setup SQLite database: campus_local.db")
+        return SQLiteConnectionAdapter()
     except Exception as e:
         print(f"MySQL unavailable ({e}). Using local zero-setup SQLite database: campus_local.db")
         return SQLiteConnectionAdapter()

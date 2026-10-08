@@ -22,11 +22,6 @@ campus_local.db
 *.sqlite
 *.sqlite3
 
-# Docker files
-Dockerfile
-.dockerignore
-docker-compose*.yml
-
 # Logs
 *.log
 app.log

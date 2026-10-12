@@ -19,7 +19,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- =======================================================
 -- 1. USERS TABLE
 -- =======================================================
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     user_id VARCHAR(50) NOT NULL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     email VARCHAR(100) UNIQUE,
@@ -30,7 +30,7 @@ CREATE TABLE users (
 -- =======================================================
 -- 2. VEHICLES TABLE
 -- =======================================================
-CREATE TABLE vehicles (
+CREATE TABLE IF NOT EXISTS vehicles (
     vehicle_id VARCHAR(50) NOT NULL PRIMARY KEY,
     vehicle_type VARCHAR(50) NOT NULL,
     location VARCHAR(100) NOT NULL,
@@ -38,6 +38,8 @@ CREATE TABLE vehicles (
     status ENUM('AVAILABLE', 'RESERVED', 'IN_USE', 'MAINTENANCE') NOT NULL DEFAULT 'AVAILABLE',
     user_id VARCHAR(50) NULL,
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_vehicle_status (status),
+    KEY idx_vehicle_battery (battery_level),
     CONSTRAINT fk_vehicles_user FOREIGN KEY (user_id) 
         REFERENCES users(user_id) 
         ON DELETE SET NULL 
@@ -47,13 +49,16 @@ CREATE TABLE vehicles (
 -- =======================================================
 -- 3. RESERVATIONS TABLE
 -- =======================================================
-CREATE TABLE reservations (
+CREATE TABLE IF NOT EXISTS reservations (
     reservation_id INT AUTO_INCREMENT PRIMARY KEY,
     vehicle_id VARCHAR(50) NOT NULL,
     user_id VARCHAR(50) NOT NULL,
     start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP NULL,
     status ENUM('ACTIVE', 'COMPLETED', 'CANCELLED') NOT NULL DEFAULT 'ACTIVE',
+    KEY idx_reservation_status (status),
+    KEY idx_reservation_user (user_id),
+    KEY idx_reservation_vehicle (vehicle_id),
     CONSTRAINT fk_reservations_vehicle FOREIGN KEY (vehicle_id) 
         REFERENCES vehicles(vehicle_id) 
         ON DELETE CASCADE 
@@ -64,19 +69,12 @@ CREATE TABLE reservations (
         ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Useful indexes for querying
-CREATE INDEX idx_vehicle_status ON vehicles(status);
-CREATE INDEX idx_vehicle_battery ON vehicles(battery_level);
-CREATE INDEX idx_reservation_status ON reservations(status);
-CREATE INDEX idx_reservation_user ON reservations(user_id);
-CREATE INDEX idx_reservation_vehicle ON reservations(vehicle_id);
-
 -- =======================================================
 -- SEED SAMPLE DATA
 -- =======================================================
 
 -- Users / Students
-INSERT INTO users (user_id, name, email, role) VALUES
+INSERT IGNORE INTO users (user_id, name, email, role) VALUES
 ('STU-1001', 'Jithesh', 'aarav.patel@campus.edu', 'STUDENT'),
 ('STU-1002', 'Rishi Reddy', 'rishi.reddy@campus.edu', 'STUDENT'),
 ('STU-1003', 'Sneha Sharma', 'sneha.sharma@campus.edu', 'STUDENT'),
@@ -84,7 +82,7 @@ INSERT INTO users (user_id, name, email, role) VALUES
 ('FAC-2001', 'Dr. Meera Iyer', 'meera.iyer@campus.edu', 'FACULTY');
 
 -- Vehicles (EVs, Scooters, Bicycles)
-INSERT INTO vehicles (vehicle_id, vehicle_type, location, battery_level, status, user_id) VALUES
+INSERT IGNORE INTO vehicles (vehicle_id, vehicle_type, location, battery_level, status, user_id) VALUES
 ('EV-101', 'ELECTRIC_SCOOTER', 'North Academic Gate', 85, 'AVAILABLE', NULL),
 ('EV-102', 'ELECTRIC_SCOOTER', 'Student Center Hub', 18, 'AVAILABLE', NULL),
 ('EV-103', 'ELECTRIC_CAR', 'Main Administration Plaza', 92, 'AVAILABLE', NULL),
@@ -94,5 +92,5 @@ INSERT INTO vehicles (vehicle_id, vehicle_type, location, battery_level, status,
 ('BK-203', 'SMART_BICYCLE', 'Campus Library South', 95, 'AVAILABLE', NULL);
 
 -- Active & Historical Reservations
-INSERT INTO reservations (reservation_id, vehicle_id, user_id, start_time, end_time, status) VALUES
+INSERT IGNORE INTO reservations (reservation_id, vehicle_id, user_id, start_time, end_time, status) VALUES
 (1, 'BK-202', 'STU-1001', CURRENT_TIMESTAMP, NULL, 'ACTIVE');

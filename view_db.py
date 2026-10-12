@@ -1,18 +1,30 @@
 #!/usr/bin/env python3
 """
-Quick utility script to view the local SQLite database anytime,
+Database Viewer Utility for Smart Campus Mobility.
+Supports both MySQL (AWS RDS / Local) and SQLite fallback anytime,
 even when the Flask application is completely stopped.
 """
 
 import os
-import sqlite3
+import sys
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "campus_local.db")
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_USER = os.getenv("DB_USER", "root")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_NAME = os.getenv("DB_NAME", "smart_campus_mobility")
+DB_PORT = int(os.getenv("DB_PORT", "3306"))
+SQLITE_PATH = os.path.join(os.path.dirname(__file__), "campus_local.db")
 
 def print_table(title, rows, columns):
-    print(f"\n{'='*70}")
+    print(f"\n{'='*75}")
     print(f"  {title} ({len(rows)} rows)")
-    print(f"{'='*70}")
+    print(f"{'='*75}")
 
     if not rows:
         print("  (Empty table)")
@@ -37,14 +49,8 @@ def print_table(title, rows, columns):
         )
         print(f"  {row_str}")
 
-def main():
-    if not os.path.exists(DB_PATH):
-        print(f"\n[Info] '{DB_PATH}' has not been created yet.")
-        print("Run the app once ('./venv/bin/python3 app.py') to generate and populate the database.")
-        return
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+def fetch_and_display(cursor, db_type_str):
+    print(f"\n>>> Source: {db_type_str}")
 
     # 1. Users
     cursor.execute("SELECT user_id, name, email, role FROM users")
@@ -61,8 +67,69 @@ def main():
     reservations = cursor.fetchall()
     print_table("TABLE: reservations", reservations, ["reservation_id", "vehicle_id", "user_id", "start_time", "end_time", "status"])
 
+def try_mysql():
+    # 1. Try PyMySQL
+    try:
+        import pymysql
+        conn = pymysql.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            port=DB_PORT,
+            connect_timeout=5
+        )
+        cur = conn.cursor()
+        fetch_and_display(cur, f"MySQL / RDS ({DB_HOST}:{DB_PORT} / {DB_NAME}) [via PyMySQL]")
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e_py:
+        pass
+
+    # 2. Try mysql.connector
+    try:
+        import mysql.connector
+        conn = mysql.connector.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            port=DB_PORT,
+            connection_timeout=5
+        )
+        cur = conn.cursor()
+        fetch_and_display(cur, f"MySQL / RDS ({DB_HOST}:{DB_PORT} / {DB_NAME}) [via mysql-connector]")
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e_mc:
+        pass
+
+    return False
+
+def try_sqlite():
+    if not os.path.exists(SQLITE_PATH):
+        print(f"\n[Info] Neither MySQL nor SQLite ('{SQLITE_PATH}') are available.")
+        print("Please check your .env database settings or run the app to generate the database.")
+        return False
+
+    import sqlite3
+    conn = sqlite3.connect(SQLITE_PATH)
+    cur = conn.cursor()
+    fetch_and_display(cur, f"Local SQLite database ({SQLITE_PATH})")
+    cur.close()
     conn.close()
-    print(f"\nDatabase file location: {DB_PATH}\n")
+    return True
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--sqlite":
+        try_sqlite()
+        return
+
+    if not try_mysql():
+        print(f"\n[Notice] Could not connect to MySQL at {DB_HOST}:{DB_PORT}. Checking local SQLite...")
+        try_sqlite()
 
 if __name__ == "__main__":
     main()

@@ -35,3 +35,6 @@ app.log
 # Operating System files
 .DS_Store
 Thumbs.db
+.aws-sam/
+.pytest_cache/
+*.pem

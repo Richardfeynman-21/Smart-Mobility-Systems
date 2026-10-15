@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Smart Campus Mobility DynamoDB Streams, Lambda processing, and CloudWatch monitoring.
+
+Resources:
+  MobilityEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: smart-mobility-events
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: event_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: event_id
+          KeyType: HASH
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      SSESpecification:
+        SSEEnabled: true
+
+  ProcessedEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: smart-mobility-processed-events
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: event_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: event_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  MobilityEventProcessor:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: smart-mobility-event-processor
+      CodeUri: lambda/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          PROCESSED_EVENTS_TABLE: !Ref ProcessedEventsTable
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Sid: ReadMobilityEventStream
+              Effect: Allow
+              Action:
+                - dynamodb:DescribeStream
+                - dynamodb:GetRecords
+                - dynamodb:GetShardIterator
+                - dynamodb:ListStreams
+              Resource: !GetAtt MobilityEventsTable.StreamArn
+            - Sid: WriteProcessedEventRecords
+              Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt ProcessedEventsTable.Arn
+      Events:
+        MobilityEventsStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt MobilityEventsTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            MaximumRetryAttempts: 3
+            MaximumRecordAgeInSeconds: 3600
+            BisectBatchOnFunctionError: true
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+
+  MobilityLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/smart-mobility-event-processor
+      RetentionInDays: 14
+
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: smart-mobility-lambda-errors
+      AlarmDescription: Alert when the mobility event processor reports Lambda invocation errors.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref MobilityEventProcessor
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  MobilityEventsTableName:
+    Description: DynamoDB table used by the Flask transactional outbox publisher.
+    Value: !Ref MobilityEventsTable
+  ProcessedEventsTableName:
+    Value: !Ref ProcessedEventsTable
+  LambdaFunctionName:
+    Value: !Ref MobilityEventProcessor
+  LambdaLogGroupName:
+    Value: !Sub /aws/lambda/${MobilityEventProcessor}

@@ -1,920 +1,276 @@
+"use strict";
+
 let vehicles = [];
-let students = [];
+let users = [];
 let reservations = [];
+let maintenanceRecords = [];
+let notificationItems = [];
+let messageTimer = null;
 
+const $ = (id) => document.getElementById(id);
 
-// =====================================================
-// INITIALIZATION
-// =====================================================
+function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[char]));
+}
 
-document.addEventListener("DOMContentLoaded", () => {
+function localDateTimeValue(date) {
+    const adjusted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return adjusted.toISOString().slice(0, 16);
+}
 
-    document
-        .getElementById("refreshButton")
-        .addEventListener("click", () => {
-            loadDashboard();
-        });
+function setDefaultBookingTimes() {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    const end = new Date(now.getTime() + 60 * 60 * 1000);
+    if (!$('bookingStart').value) $('bookingStart').value = localDateTimeValue(now);
+    if (!$('bookingEnd').value) $('bookingEnd').value = localDateTimeValue(end);
+}
 
+function showMessage(message, type = "success") {
+    const box = $('messageBox');
+    box.textContent = message;
+    box.className = `message-box ${type}`;
+    if (messageTimer) clearTimeout(messageTimer);
+    messageTimer = setTimeout(() => { box.className = 'message-box'; box.textContent = ''; }, 5000);
+}
 
-    document
-        .getElementById("studentSelect")
-        .addEventListener("change", () => {
-            displayVehicles();
-        });
-
-
-    // One click handler for ALL vehicle actions
-    document
-        .getElementById("vehicleTableBody")
-        .addEventListener("click", handleVehicleAction);
-
-
-    loadDashboard();
-
-});
-
-
-// =====================================================
-// LOAD DASHBOARD
-// =====================================================
+async function api(url, options = {}) {
+    const response = await fetch(url, {
+        ...options,
+        headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || `Request failed (${response.status}).`);
+    return data;
+}
 
 async function loadDashboard() {
-
+    const selectedUser = $('studentSelect').value;
     try {
-
-        showTableLoading();
-
-
-        const responses = await Promise.all([
-            fetch("/vehicles"),
-            fetch("/users"),
-            fetch("/reservations"),
-            fetch("/vehicles/alerts")
+        const [vehicleData, userData, reservationData, alertData, maintenanceData, analyticsData] = await Promise.all([
+            api('/vehicles'), api('/users'), api('/reservations'), api('/vehicles/alerts'), api('/maintenance'), api('/analytics')
         ]);
-
-
-        for (const response of responses) {
-
-            if (!response.ok) {
-
-                throw new Error(
-                    `Server returned ${response.status}`
-                );
-
-            }
-
-        }
-
-
-        vehicles =
-            await responses[0].json();
-
-        students =
-            await responses[1].json();
-
-        reservations =
-            await responses[2].json();
-
-        const alerts =
-            await responses[3].json();
-
-
-        populateStudents();
-
-        updateSummary();
-
-        displayVehicles();
-
-        displayAlerts(alerts);
-
-
+        vehicles = vehicleData;
+        users = userData;
+        reservations = reservationData;
+        maintenanceRecords = maintenanceData;
+        populateUsers(selectedUser);
+        populateMaintenanceVehicles();
+        renderVehicles();
+        renderReservations();
+        renderAlerts(alertData);
+        renderMaintenance();
+        renderAnalytics(analyticsData);
+        await loadNotifications();
     } catch (error) {
-
-        console.error(
-            "Dashboard loading error:",
-            error
-        );
-
-
-        showMessage(
-            "Unable to load dashboard data.",
-            "error"
-        );
-
+        console.error('Dashboard loading error:', error);
+        showMessage(`Unable to load dashboard: ${error.message}`, 'error');
     }
-
 }
 
-
-// =====================================================
-// STUDENT DROPDOWN
-// =====================================================
-
-function populateStudents() {
-
-    const select =
-        document.getElementById(
-            "studentSelect"
-        );
-
-
-    const previousValue =
-        select.value;
-
-
-    select.innerHTML = `
-        <option value="">
-            Select Student
-        </option>
-    `;
-
-
-    students.forEach(student => {
-
-        const option =
-            document.createElement("option");
-
-
-        option.value =
-            student.user_id;
-
-
-        option.textContent =
-            `${student.user_id} - ${student.name}`;
-
-
+function populateUsers(previousValue = '') {
+    const select = $('studentSelect');
+    select.innerHTML = '<option value="">Select user</option>';
+    users.forEach((user) => {
+        const option = document.createElement('option');
+        option.value = user.user_id;
+        option.textContent = `${user.user_id} - ${user.name}`;
         select.appendChild(option);
-
     });
-
-
-    if (
-        previousValue &&
-        students.some(
-            student =>
-                student.user_id === previousValue
-        )
-    ) {
-
-        select.value =
-            previousValue;
-
-    }
-
+    if (previousValue && users.some((user) => user.user_id === previousValue)) select.value = previousValue;
 }
 
-
-// =====================================================
-// SUMMARY
-// =====================================================
-
-function updateSummary() {
-
-    const total =
-        vehicles.length;
-
-
-    const available =
-        vehicles.filter(
-            vehicle =>
-                vehicle.status === "AVAILABLE"
-        ).length;
-
-
-    const reserved =
-        vehicles.filter(
-            vehicle =>
-                vehicle.status === "RESERVED"
-        ).length;
-
-
-    const alerts =
-        vehicles.filter(
-            vehicle =>
-                vehicle.battery_level <= 20 ||
-                vehicle.status === "MAINTENANCE"
-        ).length;
-
-
-    document.getElementById(
-        "totalVehicles"
-    ).textContent = total;
-
-
-    document.getElementById(
-        "availableVehicles"
-    ).textContent = available;
-
-
-    document.getElementById(
-        "reservedVehicles"
-    ).textContent = reserved;
-
-
-    document.getElementById(
-        "alertVehicles"
-    ).textContent = alerts;
-
-}
-
-
-// =====================================================
-// DISPLAY VEHICLES
-// =====================================================
-
-function displayVehicles() {
-
-    const tableBody =
-        document.getElementById(
-            "vehicleTableBody"
-        );
-
-
-    const selectedStudent =
-        document.getElementById(
-            "studentSelect"
-        ).value;
-
-
-    tableBody.innerHTML = "";
-
-
-    if (vehicles.length === 0) {
-
-        tableBody.innerHTML = `
-            <tr>
-                <td colspan="7" class="loading">
-                    No vehicles found.
-                </td>
-            </tr>
-        `;
-
-        return;
-
-    }
-
-
-    vehicles.forEach(vehicle => {
-
-        const row =
-            document.createElement("tr");
-
-
-        const batteryClass =
-            vehicle.battery_level <= 20
-                ? "battery-low"
-                : "battery-normal";
-
-
-        const statusClass =
-            getStatusClass(
-                vehicle.status
-            );
-
-
-        row.innerHTML = `
-
-            <td>
-                <strong>
-                    ${escapeHtml(vehicle.vehicle_id)}
-                </strong>
-            </td>
-
-            <td>
-                ${formatVehicleType(
-                    vehicle.vehicle_type
-                )}
-            </td>
-
-            <td>
-                ${escapeHtml(vehicle.location)}
-            </td>
-
-            <td class="${batteryClass}">
-                ${vehicle.battery_level}%
-            </td>
-
-            <td>
-
-                <span class="status-badge ${statusClass}">
-                    ${escapeHtml(vehicle.status)}
-                </span>
-
-            </td>
-
-            <td>
-                ${vehicle.user_id
-                    ? escapeHtml(vehicle.user_id)
-                    : "—"}
-            </td>
-
-            <td>
-                ${createActionButton(
-                    vehicle,
-                    selectedStudent
-                )}
-            </td>
-
-        `;
-
-
-        tableBody.appendChild(row);
-
+function populateMaintenanceVehicles() {
+    const select = $('maintenanceVehicle');
+    const previous = select.value;
+    select.innerHTML = '<option value="">Select vehicle</option>';
+    vehicles.forEach((vehicle) => {
+        const option = document.createElement('option');
+        option.value = vehicle.vehicle_id;
+        option.textContent = `${vehicle.vehicle_id} — ${vehicle.vehicle_type.replaceAll('_', ' ')}`;
+        select.appendChild(option);
     });
-
+    if (vehicles.some((vehicle) => vehicle.vehicle_id === previous)) select.value = previous;
 }
 
-
-// =====================================================
-// CREATE ACTION BUTTON
-// =====================================================
-
-function createActionButton(
-    vehicle,
-    selectedStudent
-) {
-
-    if (!selectedStudent) {
-
-        return `
-            <button
-                type="button"
-                class="action-button disabled-button"
-                disabled>
-
-                Select Student
-
-            </button>
-        `;
-
-    }
-
-
-    if (
-        vehicle.status === "AVAILABLE"
-    ) {
-
-        return `
-            <button
-                type="button"
-                class="action-button reserve-button"
-                data-action="reserve"
-                data-vehicle-id="${escapeHtml(vehicle.vehicle_id)}">
-
-                Reserve
-
-            </button>
-        `;
-
-    }
-
-
-    if (
-        vehicle.status === "RESERVED" &&
-        vehicle.user_id === selectedStudent
-    ) {
-
-        const reservation =
-            reservations.find(
-                reservation =>
-                    reservation.vehicle_id ===
-                        vehicle.vehicle_id &&
-
-                    reservation.user_id ===
-                        selectedStudent &&
-
-                    reservation.status ===
-                        "ACTIVE"
-            );
-
-
-        if (reservation) {
-
-            return `
-                <button
-                    type="button"
-                    class="action-button return-button"
-                    data-action="return"
-                    data-reservation-id="${reservation.reservation_id}">
-
-                    Return
-
-                </button>
-            `;
-
-        }
-
-    }
-
-
-    if (
-        vehicle.status === "RESERVED"
-    ) {
-
-        return `
-            <button
-                type="button"
-                class="action-button disabled-button"
-                disabled>
-
-                Reserved
-
-        </button>
-        `;
-
-    }
-
-
-    if (
-        vehicle.status === "IN_USE"
-    ) {
-
-        return `
-            <button
-                type="button"
-                class="action-button disabled-button"
-                disabled>
-
-                In Use
-
-            </button>
-        `;
-
-    }
-
-
-    if (
-        vehicle.status === "MAINTENANCE"
-    ) {
-
-        return `
-            <button
-                type="button"
-                class="action-button disabled-button"
-                disabled>
-
-                Maintenance
-
-            </button>
-        `;
-
-    }
-
-
-    return `
-        <button
-            type="button"
-            class="action-button disabled-button"
-            disabled>
-
-            Unavailable
-
-        </button>
-    `;
-
-}
-
-
-// =====================================================
-// HANDLE VEHICLE BUTTON CLICKS
-// =====================================================
-
-async function handleVehicleAction(event) {
-
-    const button =
-        event.target.closest(
-            "button[data-action]"
-        );
-
-
-    if (!button) {
-        return;
-    }
-
-
-    const action =
-        button.dataset.action;
-
-
-    if (action === "reserve") {
-
-        const vehicleId =
-            button.dataset.vehicleId;
-
-
-        await reserveVehicle(
-            vehicleId
-        );
-
-    }
-
-
-    if (action === "return") {
-
-        const reservationId =
-            button.dataset.reservationId;
-
-
-        await returnVehicle(
-            reservationId
-        );
-
-    }
-
-}
-
-
-// =====================================================
-// RESERVE VEHICLE
-// =====================================================
-
-async function reserveVehicle(
-    vehicleId
-) {
-
-    const studentSelect =
-        document.getElementById(
-            "studentSelect"
-        );
-
-
-    const studentId =
-        studentSelect.value;
-
-
-    if (!studentId) {
-
-        showMessage(
-            "Please select a student first.",
-            "error"
-        );
-
-        return;
-
-    }
-
-
-    try {
-
-        const response =
-            await fetch(
-                "/reservations",
-                {
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body: JSON.stringify({
-
-                        vehicle_id:
-                            vehicleId,
-
-                        user_id:
-                            studentId
-
-                    })
-
+function renderVehicles() {
+    const selectedUser = $('studentSelect').value;
+    $('totalVehicles').textContent = vehicles.length;
+    $('availableVehicles').textContent = vehicles.filter(v => v.status === 'AVAILABLE').length;
+    $('reservedVehicles').textContent = vehicles.filter(v => v.status === 'RESERVED').length;
+    $('alertVehicles').textContent = vehicles.filter(v => Number(v.battery_level) <= 20 || v.status === 'MAINTENANCE').length;
+    const body = $('vehicleTableBody');
+    if (!vehicles.length) { body.innerHTML = '<tr><td colspan="7" class="loading">No vehicles found.</td></tr>'; return; }
+    body.innerHTML = vehicles.map((v) => {
+        const currentReservation = reservations.find(r => r.vehicle_id === v.vehicle_id && r.user_id === selectedUser && ['ACTIVE', 'CONFIRMED'].includes(r.status));
+        let action = '<button class="action-button disabled-button" disabled>Select a user</button>';
+        if (selectedUser && v.status !== 'MAINTENANCE') {
+            if (currentReservation && currentReservation.status !== 'WAITLISTED') {
+                const startsAt = currentReservation.booking_start ? new Date(String(currentReservation.booking_start).replace(' ', 'T') + (/[zZ]|[+-]\d{2}:?\d{2}$/.test(String(currentReservation.booking_start)) ? '' : 'Z')) : null;
+                if (currentReservation.status === 'ACTIVE' || (startsAt && startsAt <= new Date())) {
+                    action = `<button class="action-button return-button" data-action="return" data-id="${currentReservation.reservation_id}">Return</button>`;
+                } else {
+                    action = `<button class="action-button secondary-button" data-action="cancel" data-id="${currentReservation.reservation_id}">Cancel Booking</button>`;
                 }
-            );
-
-
-        const data =
-            await response.json();
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                data.message ||
-                "Reservation failed."
-            );
-
-        }
-
-
-        showMessage(
-            `Vehicle ${vehicleId} reserved successfully.`,
-            "success"
-        );
-
-
-        await loadDashboard();
-
-
-        studentSelect.value =
-            studentId;
-
-
-        displayVehicles();
-
-
-    } catch (error) {
-
-        console.error(
-            "Reservation error:",
-            error
-        );
-
-
-        showMessage(
-            error.message,
-            "error"
-        );
-
-    }
-
-}
-
-
-// =====================================================
-// RETURN VEHICLE
-// =====================================================
-
-async function returnVehicle(
-    reservationId
-) {
-
-    try {
-
-        const response =
-            await fetch(
-                `/reservations/${reservationId}/return`,
-                {
-                    method: "PUT"
-                }
-            );
-
-
-        const data =
-            await response.json();
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                data.message ||
-                "Vehicle return failed."
-            );
-
-        }
-
-
-        showMessage(
-            "Vehicle returned successfully.",
-            "success"
-        );
-
-
-        await loadDashboard();
-
-
-    } catch (error) {
-
-        console.error(
-            "Return error:",
-            error
-        );
-
-
-        showMessage(
-            error.message,
-            "error"
-        );
-
-    }
-
-}
-
-
-// =====================================================
-// ALERTS
-// =====================================================
-
-function displayAlerts(
-    alertData
-) {
-
-    const container =
-        document.getElementById(
-            "alertsContainer"
-        );
-
-
-    container.innerHTML = "";
-
-
-    if (
-        !alertData.vehicles ||
-        alertData.vehicles.length === 0
-    ) {
-
-        container.innerHTML = `
-            <p class="loading">
-                No active vehicle alerts.
-            </p>
-        `;
-
-        return;
-
-    }
-
-
-    alertData.vehicles.forEach(vehicle => {
-
-        const card =
-            document.createElement("div");
-
-
-        card.className =
-            "alert-card";
-
-
-        let reason = "";
-
-
-        if (
-            vehicle.battery_level <= 20
-        ) {
-
-            reason =
-                `Low battery (${vehicle.battery_level}%)`;
-
-        }
-
-
-        if (
-            vehicle.status === "MAINTENANCE"
-        ) {
-
-            if (reason) {
-                reason += " • ";
+            } else {
+                action = `<button class="action-button reserve-button" data-action="reserve" data-vehicle="${escapeHtml(v.vehicle_id)}">Book / Join Waitlist</button>`;
             }
-
-            reason +=
-                "Maintenance required";
-
+        } else if (v.status === 'MAINTENANCE') {
+            action = '<button class="action-button disabled-button" disabled>Maintenance</button>';
         }
-
-
-        card.innerHTML = `
-
-            <h4>
-                ${escapeHtml(
-                    vehicle.vehicle_id
-                )}
-            </h4>
-
-            <p>
-                ${reason}
-            </p>
-
-            <p>
-                Location:
-                ${escapeHtml(
-                    vehicle.location
-                )}
-            </p>
-
-        `;
-
-
-        container.appendChild(card);
-
-    });
-
+        return `<tr>
+            <td><strong>${escapeHtml(v.vehicle_id)}</strong></td>
+            <td>${escapeHtml(String(v.vehicle_type).replaceAll('_', ' '))}</td>
+            <td>${escapeHtml(v.location)}</td>
+            <td class="${Number(v.battery_level) <= 20 ? 'battery-low' : 'battery-normal'}">${escapeHtml(v.battery_level)}%</td>
+            <td><span class="status-badge status-${String(v.status).toLowerCase().replaceAll('_', '-')}">${escapeHtml(v.status)}</span></td>
+            <td>${escapeHtml(v.user_id || '—')}</td><td>${action}</td></tr>`;
+    }).join('');
 }
 
+function formatDate(value) {
+    if (!value) return '—';
+    let raw = String(value);
+    if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) raw = raw.replace(' ', 'T') + 'Z';
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? escapeHtml(value) : date.toLocaleString();
+}
 
-// =====================================================
-// STATUS
-// =====================================================
+function renderReservations() {
+    const currentUser = $('studentSelect').value;
+    const visible = reservations.filter(r => !currentUser || r.user_id === currentUser);
+    const body = $('reservationTableBody');
+    if (!visible.length) { body.innerHTML = '<tr><td colspan="7" class="loading">No reservations for this user.</td></tr>'; return; }
+    body.innerHTML = visible.map(r => {
+        let action = '—';
+        if (['ACTIVE', 'CONFIRMED', 'WAITLISTED'].includes(r.status)) {
+            if (r.status === 'ACTIVE' || r.status === 'CONFIRMED') {
+                action = `<button class="action-button secondary-button" data-action="cancel" data-id="${r.reservation_id}">Cancel</button>`;
+                const start = r.booking_start ? new Date(String(r.booking_start).replace(' ', 'T') + (/[zZ]|[+-]\d{2}:?\d{2}$/.test(String(r.booking_start)) ? '' : 'Z')) : null;
+                if (r.status === 'ACTIVE' || (start && start <= new Date())) {
+                    action += ` <button class="action-button return-button" data-action="return" data-id="${r.reservation_id}">Return</button>`;
+                }
+            } else {
+                action = `<button class="action-button secondary-button" data-action="cancel" data-id="${r.reservation_id}">Leave queue</button>`;
+            }
+        }
+        return `<tr><td>${r.reservation_id}</td><td>${escapeHtml(r.vehicle_id)}</td><td>${escapeHtml(r.user_id)}</td><td>${formatDate(r.booking_start)}</td><td>${formatDate(r.booking_end)}</td><td><span class="status-badge status-${String(r.status).toLowerCase().replaceAll('_', '-')}">${escapeHtml(r.status)}</span></td><td>${action}</td></tr>`;
+    }).join('');
+}
 
-function getStatusClass(
-    status
-) {
+function renderAlerts(data) {
+    const container = $('alertsContainer');
+    if (!data.vehicles?.length) { container.innerHTML = '<p class="empty-state">No active vehicle alerts.</p>'; return; }
+    container.innerHTML = data.vehicles.map(v => {
+        const reasons = [];
+        if (Number(v.battery_level) <= 20) reasons.push(`Low battery (${v.battery_level}%)`);
+        if (v.status === 'MAINTENANCE') reasons.push('Under maintenance');
+        return `<article class="alert-card"><h4>${escapeHtml(v.vehicle_id)}</h4><p>${reasons.map(escapeHtml).join(' · ')}</p><p>Location: ${escapeHtml(v.location)}</p></article>`;
+    }).join('');
+}
 
-    switch (status) {
+function renderMaintenance() {
+    const container = $('maintenanceList');
+    if (!maintenanceRecords.length) { container.innerHTML = '<p class="empty-state">No maintenance records yet.</p>'; return; }
+    container.innerHTML = maintenanceRecords.map(m => `<article class="list-item"><div><strong>${escapeHtml(m.vehicle_id)}</strong><p>${escapeHtml(m.description)}</p><small>${escapeHtml(m.status)} · ${formatDate(m.scheduled_start)}${m.scheduled_end ? ` – ${formatDate(m.scheduled_end)}` : ''}</small></div>${m.status === 'SCHEDULED' ? `<button class="action-button return-button" data-action="maintenance-complete" data-id="${m.maintenance_id}">Mark complete</button>` : ''}</article>`).join('');
+}
 
-        case "AVAILABLE":
-            return "status-available";
+function renderAnalytics(data) {
+    $('analyticsReservations').textContent = data.reservation_total ?? 0;
+    $('analyticsWaiting').textContent = data.waitlist_total ?? 0;
+    $('analyticsUtilization').textContent = `${data.current_utilization_percent ?? 0}%`;
+    const statuses = data.reservations_by_status || [];
+    const maxStatus = Math.max(1, ...statuses.map(item => Number(item.count) || 0));
+    $('statusAnalytics').innerHTML = statuses.length ? statuses.map(item => {
+        const width = Math.max(3, (Number(item.count) / maxStatus) * 100);
+        return `<div class="bar-row"><div class="metric-row"><span>${escapeHtml(item.status)}</span><strong>${item.count}</strong></div><div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div></div>`;
+    }).join('') : '<p class="empty-state">No reservation data yet.</p>';
+    const popular = data.popular_vehicles || [];
+    const maxPopular = Math.max(1, ...popular.map(item => Number(item.booking_count) || 0));
+    $('popularVehicles').innerHTML = popular.length ? popular.map(item => {
+        const width = Math.max(3, (Number(item.booking_count) / maxPopular) * 100);
+        return `<div class="bar-row"><div class="metric-row"><span>${escapeHtml(item.vehicle_id)}</span><strong>${item.booking_count} bookings</strong></div><div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div></div>`;
+    }).join('') : '<p class="empty-state">No booking data yet.</p>';
+}
 
-        case "RESERVED":
-            return "status-reserved";
-
-        case "IN_USE":
-            return "status-in-use";
-
-        case "MAINTENANCE":
-            return "status-maintenance";
-
-        default:
-            return "";
-
+async function loadNotifications() {
+    const userId = $('studentSelect').value;
+    const container = $('notificationsList');
+    if (!userId) { container.innerHTML = '<p class="empty-state">Select a user to view notifications.</p>'; return; }
+    try {
+        notificationItems = await api(`/notifications?user_id=${encodeURIComponent(userId)}`);
+        container.innerHTML = notificationItems.length ? notificationItems.map(n => `<article class="list-item ${Number(n.is_read) ? '' : 'unread'}"><div><p>${escapeHtml(n.message)}</p><small>${escapeHtml(n.notification_type)} · ${formatDate(n.created_at)}</small></div>${Number(n.is_read) ? '' : `<button class="action-button secondary-button" data-action="notification-read" data-id="${n.notification_id}">Mark read</button>`}</article>`).join('') : '<p class="empty-state">No notifications yet.</p>';
+    } catch (error) {
+        console.error('Notifications error:', error);
+        container.innerHTML = `<p class="empty-state">Unable to load notifications: ${escapeHtml(error.message)}</p>`;
     }
-
 }
 
-
-// =====================================================
-// VEHICLE TYPE
-// =====================================================
-
-function formatVehicleType(
-    type
-) {
-
-    return type
-        .replaceAll("_", " ")
-        .toLowerCase()
-        .replace(
-            /\b\w/g,
-            char =>
-                char.toUpperCase()
-        );
-
+async function handleAction(event) {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const action = button.dataset.action;
+    const id = button.dataset.id;
+    try {
+        if (action === 'reserve') {
+            const userId = $('studentSelect').value;
+            if (!userId) throw new Error('Select a user first.');
+            const start = $('bookingStart').value;
+            const end = $('bookingEnd').value;
+            if (!start || !end || new Date(end) <= new Date(start)) throw new Error('Choose a valid start and end time.');
+            const result = await api('/reservations', { method: 'POST', body: JSON.stringify({ vehicle_id: button.dataset.vehicle, user_id: userId, booking_start: new Date(start).toISOString(), booking_end: new Date(end).toISOString() }) });
+            showMessage(result.message, result.status === 'WAITLISTED' ? 'error' : 'success');
+        } else if (action === 'cancel') {
+            const result = await api(`/reservations/${id}/cancel`, { method: 'PUT' });
+            showMessage(result.message);
+        } else if (action === 'return') {
+            const result = await api(`/reservations/${id}/return`, { method: 'PUT' });
+            showMessage(result.message);
+        } else if (action === 'maintenance-complete') {
+            const result = await api(`/maintenance/${id}/complete`, { method: 'PUT' });
+            showMessage(result.message);
+        } else if (action === 'notification-read') {
+            await api(`/notifications/${id}/read`, { method: 'PUT', body: JSON.stringify({ user_id: $('studentSelect').value }) });
+            await loadNotifications();
+            return;
+        }
+        await loadDashboard();
+    } catch (error) {
+        console.error(`${action} action failed:`, error);
+        showMessage(error.message, 'error');
+    }
 }
 
-
-// =====================================================
-// TABLE LOADING
-// =====================================================
-
-function showTableLoading() {
-
-    const tableBody =
-        document.getElementById(
-            "vehicleTableBody"
-        );
-
-
-    tableBody.innerHTML = `
-        <tr>
-            <td colspan="7" class="loading">
-                Loading vehicles...
-            </td>
-        </tr>
-    `;
-
+async function submitMaintenance(event) {
+    event.preventDefault();
+    try {
+        const payload = {
+            vehicle_id: $('maintenanceVehicle').value,
+            description: $('maintenanceDescription').value.trim(),
+            scheduled_start: $('maintenanceStart').value ? new Date($('maintenanceStart').value).toISOString() : null,
+            scheduled_end: $('maintenanceEnd').value ? new Date($('maintenanceEnd').value).toISOString() : null
+        };
+        const result = await api('/maintenance', { method: 'POST', body: JSON.stringify(payload) });
+        $('maintenanceForm').reset();
+        showMessage(result.message);
+        await loadDashboard();
+    } catch (error) {
+        showMessage(error.message, 'error');
+    }
 }
 
-
-// =====================================================
-// MESSAGE
-// =====================================================
-
-function showMessage(
-    message,
-    type
-) {
-
-    const box =
-        document.getElementById(
-            "messageBox"
-        );
-
-
-    box.textContent =
-        message;
-
-
-    box.className =
-        `message-box ${type}`;
-
-
-    setTimeout(() => {
-
-        box.className =
-            "message-box";
-
-        box.textContent =
-            "";
-
-    }, 4000);
-
-}
-
-
-// =====================================================
-// HTML ESCAPING
-// =====================================================
-
-function escapeHtml(
-    value
-) {
-
-    const div =
-        document.createElement(
-            "div"
-        );
-
-
-    div.textContent =
-        value ?? "";
-
-
-    return div.innerHTML;
-
-}
+document.addEventListener('DOMContentLoaded', () => {
+    setDefaultBookingTimes();
+    $('refreshButton').addEventListener('click', loadDashboard);
+    $('refreshNotifications').addEventListener('click', loadNotifications);
+    $('studentSelect').addEventListener('change', () => { renderVehicles(); renderReservations(); loadNotifications(); });
+    $('vehicleTableBody').addEventListener('click', handleAction);
+    $('reservationTableBody').addEventListener('click', handleAction);
+    $('maintenanceList').addEventListener('click', handleAction);
+    $('notificationsList').addEventListener('click', handleAction);
+    $('maintenanceForm').addEventListener('submit', submitMaintenance);
+    loadDashboard();
+    window.setInterval(loadDashboard, 15000);
+});

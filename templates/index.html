@@ -3,108 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Campus Mobility - Monitoring & Sharing</title>
+    <meta name="description" content="Smart Campus Mobility vehicle sharing, reservations, maintenance, and fleet analytics.">
+    <title>Smart Campus Mobility</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-
     <header class="header">
         <div class="header-content">
             <h1>Smart Campus Mobility</h1>
-            <p>EV & Bicycle Sharing Monitoring System</p>
+            <p>Campus vehicle sharing, reservation management, and fleet monitoring</p>
         </div>
     </header>
 
     <main class="container">
-
-        <!-- Student Selector Section -->
         <section class="student-section">
             <div>
                 <h2>Student Access</h2>
-                <p>Select a student to reserve or return a campus vehicle.</p>
+                <p>Select a demo user to make or manage reservations.</p>
             </div>
             <div class="student-selector">
-                <label for="studentSelect">Current Student:</label>
-                <select id="studentSelect">
-                    <option value="">Select Student</option>
-                </select>
+                <label for="studentSelect">Current user:</label>
+                <select id="studentSelect"><option value="">Select user</option></select>
             </div>
         </section>
 
-        <!-- Metrics Summary Section -->
+        <section class="booking-controls panel">
+            <div>
+                <h2>Reservation time slot</h2>
+                <p>Choose the requested start and end time before selecting a vehicle.</p>
+            </div>
+            <div class="form-grid time-grid">
+                <label>Start time <input id="bookingStart" type="datetime-local" required></label>
+                <label>End time <input id="bookingEnd" type="datetime-local" required></label>
+            </div>
+        </section>
+
         <section class="summary-section">
-            <div class="summary-card">
-                <h3>Total Vehicles</h3>
-                <p id="totalVehicles">0</p>
-            </div>
-            <div class="summary-card">
-                <h3>Available</h3>
-                <p id="availableVehicles">0</p>
-            </div>
-            <div class="summary-card">
-                <h3>Reserved</h3>
-                <p id="reservedVehicles">0</p>
-            </div>
-            <div class="summary-card">
-                <h3>Alerts</h3>
-                <p id="alertVehicles">0</p>
-            </div>
+            <div class="summary-card"><h3>Total Vehicles</h3><p id="totalVehicles">0</p></div>
+            <div class="summary-card"><h3>Available Now</h3><p id="availableVehicles">0</p></div>
+            <div class="summary-card"><h3>Reserved Now</h3><p id="reservedVehicles">0</p></div>
+            <div class="summary-card"><h3>Fleet Alerts</h3><p id="alertVehicles">0</p></div>
         </section>
 
-        <!-- Fleet Vehicles Table Section -->
-        <section class="vehicle-section">
+        <section class="vehicle-section panel">
             <div class="section-header">
-                <div>
-                    <h2>Campus Vehicles</h2>
-                    <p>Real-time vehicle availability and monitoring</p>
-                </div>
-                <button id="refreshButton" class="refresh-button">Refresh</button>
+                <div><h2>Campus Vehicles</h2><p>Availability refreshes automatically every 15 seconds.</p></div>
+                <button id="refreshButton" class="refresh-button" type="button">Refresh</button>
             </div>
-
             <div class="table-container">
                 <table>
-                    <thead>
-                        <tr>
-                            <th>Vehicle ID</th>
-                            <th>Type</th>
-                            <th>Location</th>
-                            <th>Battery</th>
-                            <th>Status</th>
-                            <th>User</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="vehicleTableBody">
-                        <tr>
-                            <td colspan="7" class="loading">Loading vehicles...</td>
-                        </tr>
-                    </tbody>
+                    <thead><tr><th>Vehicle ID</th><th>Type</th><th>Location</th><th>Battery</th><th>Status</th><th>Current User</th><th>Action</th></tr></thead>
+                    <tbody id="vehicleTableBody"><tr><td colspan="7" class="loading">Loading vehicles...</td></tr></tbody>
                 </table>
             </div>
         </section>
 
-        <!-- Vehicle Health & Alerts Section -->
-        <section class="alerts-section">
-            <div class="section-header">
-                <div>
-                    <h2>Vehicle Alerts</h2>
-                    <p>Vehicles requiring charging or maintenance attention</p>
-                </div>
-            </div>
-            <div id="alertsContainer">
-                <p class="loading">Loading alerts...</p>
+        <section class="panel">
+            <div class="section-header"><div><h2>Reservations & Waiting List</h2><p>Cancel a request or return a vehicle from your current user profile.</p></div></div>
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>ID</th><th>Vehicle</th><th>User</th><th>Requested Start</th><th>Requested End</th><th>Status</th><th>Action</th></tr></thead>
+                    <tbody id="reservationTableBody"><tr><td colspan="7" class="loading">Loading reservations...</td></tr></tbody>
+                </table>
             </div>
         </section>
 
-        <!-- Notification Toast -->
-        <div id="messageBox" class="message-box"></div>
+        <section class="two-column">
+            <div class="panel">
+                <div class="section-header"><div><h2>Maintenance Management</h2><p>Schedule service or record a vehicle fault.</p></div></div>
+                <form id="maintenanceForm" class="form-grid">
+                    <label>Vehicle <select id="maintenanceVehicle" required><option value="">Select vehicle</option></select></label>
+                    <label class="full-width">Issue / service description <input id="maintenanceDescription" maxlength="500" required placeholder="e.g. Brake inspection"></label>
+                    <label>Scheduled start <input id="maintenanceStart" type="datetime-local"></label>
+                    <label>Scheduled end <input id="maintenanceEnd" type="datetime-local"></label>
+                    <div><button class="primary-button" type="submit">Schedule Maintenance</button></div>
+                </form>
+                <div id="maintenanceList" class="stack-list"><p class="loading">Loading maintenance records...</p></div>
+            </div>
+            <div class="panel">
+                <div class="section-header"><div><h2>Fleet Analytics</h2><p>Live summaries from reservation records.</p></div></div>
+                <div class="analytics-metrics">
+                    <div><span>Total reservations</span><strong id="analyticsReservations">0</strong></div>
+                    <div><span>Waiting list</span><strong id="analyticsWaiting">0</strong></div>
+                    <div><span>Current fleet utilization</span><strong id="analyticsUtilization">0%</strong></div>
+                </div>
+                <h3 class="subheading">Reservations by status</h3>
+                <div id="statusAnalytics" class="stack-list"><p class="loading">Loading analytics...</p></div>
+                <h3 class="subheading">Most-booked vehicles</h3>
+                <div id="popularVehicles" class="stack-list"><p class="loading">Loading analytics...</p></div>
+            </div>
+        </section>
 
+        <section class="two-column">
+            <div class="panel">
+                <div class="section-header"><div><h2>My Notifications</h2><p>Booking, waiting-list, return, and maintenance updates.</p></div><button id="refreshNotifications" class="secondary-button" type="button">Refresh</button></div>
+                <div id="notificationsList" class="stack-list"><p class="loading">Select a user to view notifications.</p></div>
+            </div>
+            <div class="panel">
+                <div class="section-header"><div><h2>Vehicle Alerts</h2><p>Low battery and maintenance status.</p></div></div>
+                <div id="alertsContainer" class="stack-list"><p class="loading">Loading alerts...</p></div>
+            </div>
+        </section>
+
+        <div id="messageBox" class="message-box" role="status" aria-live="polite"></div>
     </main>
-
-    <footer class="footer">
-        <p>Smart Campus Mobility Monitoring System &bull; Campus Fleet Operations</p>
-    </footer>
-
-    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <footer class="footer"><p>Smart Campus Mobility · Fleet Operations</p></footer>
+    <script src="{{ url_for('static', filename='js/script.js') }}" defer></script>
 </body>
 </html>

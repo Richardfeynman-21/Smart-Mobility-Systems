@@ -1,0 +1,23 @@
+[Unit]
+Description=Smart Campus Mobility Flask application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/ec2-user/Smart-Mobility-Systems
+EnvironmentFile=/home/ec2-user/Smart-Mobility-Systems/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ec2-user/Smart-Mobility-Systems/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 --timeout 30 app:app
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/ec2-user/Smart-Mobility-Systems
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublishSmartMobilityEventsOnly",
+      "Effect": "Allow",
+      "Action": ["dynamodb:PutItem"],
+      "Resource": "arn:aws:dynamodb:eu-north-1:YOUR_AWS_ACCOUNT_ID:table/smart-mobility-events"
+    }
+  ]
+}
